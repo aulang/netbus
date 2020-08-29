@@ -1,0 +1,25 @@
+# 服务端配置
+server:
+  # Key 建议长度 6-16 个字符，用于身份校验
+  key: Aulang
+  # 代理端口
+  port: 8888
+  # 开放端口范围，范围（1024~65535）
+  # 最小开放端口
+  min-access-port: 10000
+  # 最大开放端口
+  max-access-port: 20000
+
+
+# 客户端配置
+client:
+  # Key 与服务端保持一致
+  key: Aulang
+  # 服务端地址，格式如 aulang.cn:8888
+  server-host: aulang.cn:8888
+  # 内网被代理服务地址及访问端口(多个用逗号隔开)，格式如 127.0.0.1:3306:13306
+  # 内网IP:内网端口:访问端口
+  local-host-mapping:
+    - 127.0.0.1:8081:18081
+  # 隧道条数，默认1，范围[1-5]
+  tunnel-count: 1
