@@ -22,4 +22,4 @@ client:
   local-host-mapping:
     - 127.0.0.1:8081:18081
   # 隧道条数，默认1，范围[1-5]
-  tunnel-count: 1
+  tunnel-count: 3

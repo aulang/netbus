@@ -1,10 +1,17 @@
 package core
 
 import (
+	"crypto/rand"
+	"crypto/rsa"
+	"crypto/tls"
+	"crypto/x509"
+	"encoding/pem"
 	"fmt"
 	"github.com/aulang/netbus/config"
+	"github.com/lucas-clemente/quic-go"
 	"io"
 	"log"
+	"math/big"
 	"net"
 	"sync"
 	"time"
@@ -62,35 +69,17 @@ func ioCopy(dst io.Writer, src io.Reader) (written int64, err error) {
 	return written, err
 }
 
-// 连接数据复制
-func connCopy(dst, src net.Conn, wg *sync.WaitGroup) {
-	if _, err := ioCopy(dst, src); err != nil {
-		log.Println("连接中断", err)
-	}
-	_ = dst.Close()
-	wg.Done()
-}
-
-// 连接转发
-func forward(conn1, conn2 net.Conn) {
-	var wg sync.WaitGroup
-	wg.Add(2)
-	go connCopy(conn1, conn2, &wg)
-	go connCopy(conn2, conn1, &wg)
-	wg.Wait()
-}
-
 // 关闭连接
-func closeConn(connections ...net.Conn) {
-	for _, conn := range connections {
-		if conn != nil {
-			_ = conn.Close()
+func closeWithoutError(closers ...io.Closer) {
+	for _, closer := range closers {
+		if closer != nil {
+			_ = closer.Close()
 		}
 	}
 }
 
-// 拨号
-func dial(targetAddr config.NetAddress /*目标地址*/, maxRedialTimes int /*最大重拨次数*/) net.Conn {
+// TCP拨号
+func tcpDial(targetAddr config.NetAddress /*目标地址*/, maxRedialTimes int /*最大重拨次数*/) net.Conn {
 	redialTimes := 0
 	for {
 		conn, err := net.Dial("tcp", targetAddr.String())
@@ -110,24 +99,85 @@ func dial(targetAddr config.NetAddress /*目标地址*/, maxRedialTimes int /*�
 	}
 }
 
-// 监听端口
-func listen(port uint32) net.Listener {
+// TCP监听端口
+func tcpListen(port uint32) (net.Listener, error) {
 	address := fmt.Sprintf("0.0.0.0:%d", port)
-	listener, err := net.Listen("tcp", address)
-	if err != nil {
-		log.Println("监听端口失败，端口已被占用", port)
-		return nil
-	}
-	log.Println("正在监听端口", address)
-	return listener
+	return net.Listen("tcp", address)
 }
 
-// 受理请求
-func accept(listener net.Listener) net.Conn {
-	conn, err := listener.Accept()
+// 生成公钥和密钥
+func generateTLSConfig() *tls.Config {
+	key, err := rsa.GenerateKey(rand.Reader, 1024)
 	if err != nil {
-		log.Println("接受连接失败", err.Error())
-		return nil
+		panic(err)
 	}
-	return conn
+	template := x509.Certificate{SerialNumber: big.NewInt(1)}
+	certDER, err := x509.CreateCertificate(rand.Reader, &template, &template, &key.PublicKey, key)
+	if err != nil {
+		panic(err)
+	}
+	keyPEM := pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(key)})
+	certPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: certDER})
+
+	tlsCert, err := tls.X509KeyPair(certPEM, keyPEM)
+	if err != nil {
+		panic(err)
+	}
+	return &tls.Config{
+		Certificates: []tls.Certificate{tlsCert},
+		NextProtos:   []string{"quic"},
+	}
+}
+
+// 拨号
+func dial(targetAddr config.NetAddress /*目标地址*/, maxRedialTimes int /*最大重拨次数*/) quic.Session {
+	redialTimes := 0
+	tlsConf := &tls.Config{
+		InsecureSkipVerify: true,
+		NextProtos:         []string{"quic"},
+	}
+
+	for {
+		session, err := quic.DialAddr(targetAddr.String(), tlsConf, nil)
+		if err == nil {
+			return session
+		}
+
+		redialTimes++
+
+		if maxRedialTimes < 0 || redialTimes < maxRedialTimes {
+			// 重连模式，每5秒一次
+			log.Printf("连接到 [%s] 失败, %d秒杀之后重连(%d)。", targetAddr.String(), retryIntervalTime, redialTimes)
+			time.Sleep(retryIntervalTime * time.Second)
+		} else {
+			log.Printf("连接到 [%s] 失败。 %s\n", targetAddr.String(), err.Error())
+			return nil
+		}
+	}
+}
+
+// 监听端口
+func listen(port uint32) (quic.Listener, error) {
+	address := fmt.Sprintf("0.0.0.0:%d", port)
+	return quic.ListenAddr(address, generateTLSConfig(), nil)
+}
+
+// 连接数据复制
+func quicCopy(src io.ReadCloser, dst io.WriteCloser, wg *sync.WaitGroup) {
+	if _, err := ioCopy(dst, src); err != nil {
+		log.Println("连接中断！", err)
+	}
+	wg.Done()
+}
+
+// 连接转发
+func forward(src io.ReadWriteCloser, dst io.ReadWriteCloser) {
+	var wg sync.WaitGroup
+
+	wg.Add(2)
+	go quicCopy(src, dst, &wg)
+	go quicCopy(dst, src, &wg)
+	wg.Wait()
+
+	closeWithoutError(src, dst)
 }

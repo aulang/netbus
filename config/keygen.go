@@ -94,13 +94,13 @@ func CheckKey(seed, key string) (time.Time, bool) {
 	seed = fixLength(seed)
 	expired, err := decrypt(key, seed)
 	if err != nil {
-		log.Println("解密密钥失败", err)
+		log.Println("解密密钥失败！", err)
 		return time.Time{}, false
 	}
 
 	ex, err := time.Parse(timeLayout, expired)
 	if err != nil {
-		log.Println("解析密钥失败", err)
+		log.Println("解析密钥失败！", err)
 	}
 	return ex, time.Now().Before(ex)
 }

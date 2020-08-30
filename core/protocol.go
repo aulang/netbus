@@ -2,28 +2,24 @@ package core
 
 import (
 	"bytes"
+	"context"
 	"encoding/binary"
 	"fmt"
+	"github.com/lucas-clemente/quic-go"
 	"log"
-	"net"
-	"time"
 )
 
 const (
 	// 协议-结果
 	protocolResultFail              = 0 // 失败，默认值
 	protocolResultSuccess           = 1 // 成功
-	protocolResultFailToSend        = 2 // 发送失败
-	protocolResultFailToReceive     = 3 // 接收失败
-	protocolResultFailToAuth        = 4 // 鉴权失败
-	protocolResultVersionMismatch   = 5 // 版本不匹配
-	protocolResultIllegalAccessPort = 6 // 访问端口不合法
-
-	// 协议发送超时时间
-	protocolSendTimeout = 3
+	protocolResultFailToReceive     = 2 // 接收失败
+	protocolResultFailToAuth        = 3 // 鉴权失败
+	protocolResultVersionMismatch   = 4 // 版本不匹配
+	protocolResultIllegalAccessPort = 5 // 访问端口不合法
 
 	// 版本号(单调递增)
-	protocolVersion = 4
+	protocolVersion = 5
 )
 
 // 协议格式
@@ -89,40 +85,50 @@ func parseProtocol(body []byte) Protocol {
 // 发送协议
 // 第一个字节为协议长度
 // 协议长度只支持到255
-func sendProtocol(conn net.Conn, req Protocol) bool {
+func sendProtocol(session quic.Session, req Protocol) bool {
+	// 此处会阻塞，以等待访问者连接
+	stream, err := session.OpenStream()
+	if err != nil {
+		log.Printf("打开服务器流失败：[%s]，连接失败：[%s]", session.RemoteAddr().String(), err.Error())
+		return false
+	}
+
+	//关闭连接
+	defer closeWithoutError(stream)
+
 	buffer := bytes.NewBuffer([]byte{})
 	buffer.WriteByte(req.Len())
 	buffer.Write(req.Bytes())
 
-	// 设置写超时时间，避免连接断开的问题
-	if err := conn.SetWriteDeadline(time.Now().Add(protocolSendTimeout * time.Second)); err != nil {
-		log.Println("设置超时时间失败。", err.Error())
-		return false
-	}
-	if _, err := conn.Write(buffer.Bytes()); err != nil {
+	// 发送协议数据
+	if _, err := stream.Write(buffer.Bytes()); err != nil {
 		log.Printf("发送协议数据失败。 [%s] %s\n", req.String(), err.Error())
 		return false
 	}
-	// 清空写超时设置
-	if err := conn.SetWriteDeadline(time.Time{}); err != nil {
-		log.Println("清除超时时间失败。", err.Error())
-		return false
-	}
+
 	return true
 }
 
 // 接收协议
 // 第一个字节为协议长度
-func receiveProtocol(conn net.Conn) Protocol {
-	var err error
-	var length byte
+func receiveProtocol(session quic.Session) Protocol {
+	// 此处会阻塞，以等待访问者连接
+	stream, err := session.AcceptStream(context.Background())
+	if err != nil {
+		log.Printf("接受协议流失败：[%s]，连接失败：[%s]", session.RemoteAddr().String(), err.Error())
+		return Protocol{Result: protocolResultFailToReceive}
+	}
 
-	if err = binary.Read(conn, binary.BigEndian, &length); err != nil {
+	// 关闭连接
+	defer closeWithoutError(stream)
+
+	var length byte
+	if err = binary.Read(stream, binary.BigEndian, &length); err != nil {
 		return Protocol{Result: protocolResultFailToReceive}
 	}
 	// 读取协议内容
 	body := make([]byte, length)
-	if err = binary.Read(conn, binary.BigEndian, &body); err != nil {
+	if err = binary.Read(stream, binary.BigEndian, &body); err != nil {
 		return Protocol{Result: protocolResultFailToReceive}
 	}
 	return parseProtocol(body)
