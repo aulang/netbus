@@ -124,7 +124,7 @@ func handleServerConnection(tunnelContext TunnelContext) {
 				log.Printf("获取客户端连接超时，关闭服务器连接和该端口监听！")
 				tunnelContextMap.Delete(tunnelContext.request.Port)
 				closeWithoutError(serverConn)
-				break
+				return
 			}
 		}
 	}
