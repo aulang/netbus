@@ -86,24 +86,25 @@ func buildLocalConnection(local config.NetAddress, sessionChan chan quic.Session
 	for session := range sessionChan {
 		// 建立本地连接访问
 		go func(session quic.Session, local config.NetAddress, sessionChan chan quic.Session, flagChan chan bool) {
-			// 通知创建新桥
-			flagChan <- true
 
 			// 打开流进行数据传输
 			serverStream, err := session.AcceptStream(context.Background())
 			if err != nil {
 				log.Println("打开服务端流失败！", err)
+				// 通知创建新桥
+				flagChan <- true
 				return
 			}
 
 			// 建立本地连接，进行连接数据传输
 			if localConn := tcpDial(local, 5); localConn != nil {
-				// 进行数据传输
+				// 通知创建新桥
+				flagChan <- true
 				forward(serverStream, localConn)
 			} else {
 				// 打开本地连接失败，关闭服务器流
 				closeWithoutError(serverStream)
-				// 放弃连接，重新建桥
+				// 放弃连接，不在建桥
 				log.Println("打开本地连接失败！")
 			}
 		}(session, local, sessionChan, flagChan)
