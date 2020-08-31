@@ -31,6 +31,13 @@ func init() {
 	}
 }
 
+func newConfig() *quic.Config {
+	return &quic.Config{
+		MaxIdleTimeout: time.Minute,
+		KeepAlive:      true,
+	}
+}
+
 // 使用 bufferPool 重写 copy 函数， 避免反复 gc，提升性能
 func ioCopy(dst io.Writer, src io.Reader) (written int64, err error) {
 	if wt, ok := src.(io.WriterTo); ok {
@@ -137,7 +144,7 @@ func dial(targetAddr config.NetAddress /*目标地址*/, maxRedialTimes int /*�
 	}
 
 	for {
-		session, err := quic.DialAddr(targetAddr.String(), tlsConf, nil)
+		session, err := quic.DialAddr(targetAddr.String(), tlsConf, newConfig())
 		if err == nil {
 			return session
 		}
@@ -146,7 +153,7 @@ func dial(targetAddr config.NetAddress /*目标地址*/, maxRedialTimes int /*�
 
 		if maxRedialTimes < 0 || redialTimes < maxRedialTimes {
 			// 重连模式，每5秒一次
-			log.Printf("连接到 [%s] 失败, %d秒杀之后重连(%d)。", targetAddr.String(), retryIntervalTime, redialTimes)
+			log.Printf("连接到 [%s] 失败, %d秒之后重连(%d)。", targetAddr.String(), retryIntervalTime, redialTimes)
 			time.Sleep(retryIntervalTime * time.Second)
 		} else {
 			log.Printf("连接到 [%s] 失败。 %s\n", targetAddr.String(), err.Error())
@@ -158,7 +165,7 @@ func dial(targetAddr config.NetAddress /*目标地址*/, maxRedialTimes int /*�
 // 监听端口
 func listen(port uint32) (quic.Listener, error) {
 	address := fmt.Sprintf("0.0.0.0:%d", port)
-	return quic.ListenAddr(address, generateTLSConfig(), nil)
+	return quic.ListenAddr(address, generateTLSConfig(), newConfig())
 }
 
 // 连接数据复制

@@ -19,7 +19,7 @@ const (
 	protocolResultIllegalAccessPort = 5 // 访问端口不合法
 
 	// 协议发送超时时间，单位：秒
-	protocolSendTimeout = 10
+	protocolSendTimeout = 30
 
 	// 版本号(单调递增)
 	protocolVersion = 5
