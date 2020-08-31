@@ -18,6 +18,9 @@ const (
 	protocolResultVersionMismatch   = 4 // 版本不匹配
 	protocolResultIllegalAccessPort = 5 // 访问端口不合法
 
+	// 协议发送超时时间，单位：秒
+	protocolSendTimeout = 10
+
 	// 版本号(单调递增)
 	protocolVersion = 5
 )
@@ -89,7 +92,7 @@ func sendProtocol(session quic.Session, req Protocol) bool {
 	// 此处会阻塞，以等待访问者连接
 	stream, err := session.OpenStream()
 	if err != nil {
-		log.Printf("打开服务器流失败：[%s]，连接失败：[%s]", session.RemoteAddr().String(), err.Error())
+		log.Println("打开发送协议流失败！", err)
 		return false
 	}
 
@@ -102,7 +105,7 @@ func sendProtocol(session quic.Session, req Protocol) bool {
 
 	// 发送协议数据
 	if _, err := stream.Write(buffer.Bytes()); err != nil {
-		log.Printf("发送协议数据失败。 [%s] %s\n", req.String(), err.Error())
+		log.Println("发送协议数据失败！", err)
 		return false
 	}
 
@@ -115,11 +118,11 @@ func receiveProtocol(session quic.Session) Protocol {
 	// 此处会阻塞，以等待访问者连接
 	stream, err := session.AcceptStream(context.Background())
 	if err != nil {
-		log.Printf("接受协议流失败：[%s]，连接失败：[%s]", session.RemoteAddr().String(), err.Error())
+		log.Println("接受协议数据超时！", err)
 		return Protocol{Result: protocolResultFailToReceive}
 	}
 
-	// 关闭连接
+	// 关闭流
 	defer closeWithoutError(stream)
 
 	var length byte

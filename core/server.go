@@ -6,6 +6,7 @@ import (
 	"github.com/lucas-clemente/quic-go"
 	"log"
 	"sync"
+	"time"
 )
 
 // 隧道上下文
@@ -27,14 +28,12 @@ func handleBridgeSession(session quic.Session, cfg config.ServerConfig, tunnelCo
 	req := receiveProtocol(session)
 	// 检查请求合法性
 	if protocolResult := checkRequest(req, cfg); protocolResult != protocolResultSuccess {
-		// 协议不合法
-		log.Printf("不合法的请求, Result：[%b], 客户端：[%s]\n", protocolResult, session.RemoteAddr().String())
-		// 发送失败信息
+		// 协议不合法，发送失败信息，不在处理
 		sendProtocol(session, req.NewResult(protocolResult))
 		return
 	}
 
-	// 建立连接关系，服务器监听端口 <-> 客户端会话连接池
+	// 建立连接关系，{服务器监听端口 <-> 客户端会话连接池}
 	tc, exists := tunnelContextMap.Load(req.Port)
 	if exists {
 		tc.(TunnelContext).sessionChan <- session
@@ -80,15 +79,15 @@ func checkRequest(req Protocol, cfg config.ServerConfig) byte {
 }
 
 // 处理端口转发，转发访问数据
-func handleServerConnection(tc TunnelContext) {
+func handleServerConnection(tunnelContext TunnelContext) {
 	// 监听服务端端口TCP数据
-	listener, err := tcpListen(tc.request.Port)
+	listener, err := tcpListen(tunnelContext.request.Port)
 	if err != nil {
-		log.Printf("监听指定端口失败：[%d]，端口已被占用：[%s]", tc.request.Port, err.Error())
-		tunnelContextMap.Delete(tc.request.Port)
+		log.Printf("监听指定端口失败：[%d]，端口已被占用：[%s]", tunnelContext.request.Port, err.Error())
+		tunnelContextMap.Delete(tunnelContext.request.Port)
 		return
 	}
-	log.Printf("正在监听指定端口：[%d]\n", tc.request.Port)
+	log.Printf("正在监听指定端口：[%d]\n", tunnelContext.request.Port)
 
 	for {
 		serverConn, err := listener.Accept()
@@ -97,24 +96,36 @@ func handleServerConnection(tc TunnelContext) {
 			continue
 		}
 
-		bridgeSession := <-tc.sessionChan
-
-		// 发送成功协议
-		if sendProtocol(bridgeSession, tc.request.NewResult(protocolResultSuccess)) {
-			// 打开流进行数据传输
-			bridgeStream, err := bridgeSession.OpenStream()
-			if err != nil {
-				log.Printf("打开客户端流失败，关闭服务器连接：[%s]\n", serverConn.RemoteAddr().String())
-				closeWithoutError(serverConn)
-				continue
+		select {
+		case bridgeSession := <-tunnelContext.sessionChan:
+			{
+				// 发送成功协议，连接保活
+				if sendProtocol(bridgeSession, tunnelContext.request.NewResult(protocolResultSuccess)) {
+					// 打开流进行数据传输
+					bridgeStream, err := bridgeSession.OpenStream()
+					if err != nil {
+						// 打开客户端流失败，关闭连接
+						log.Printf("打开客户端流失败！")
+						closeWithoutError(serverConn)
+						continue
+					}
+					// 进行数据传输
+					go forward(serverConn, bridgeStream)
+				} else {
+					// 发送协议失败，关闭连接
+					log.Printf("发送客户端协议失败，关闭服务器连接！")
+					closeWithoutError(serverConn)
+					continue
+				}
 			}
-
-			log.Println("进行连接数据传输！")
-			go forward(serverConn, bridgeStream)
-		} else {
-			log.Printf("发送客户端协议失败，关闭服务器连接：[%s]\n", serverConn.RemoteAddr().String())
-			closeWithoutError(serverConn)
-			continue
+		case <-time.After(protocolSendTimeout * time.Second):
+			{
+				// 超时未拿到客户端连接，断开连接，停止端口监听
+				log.Printf("获取客户端连接超时，关闭服务器连接和该端口监听！")
+				tunnelContextMap.Delete(tunnelContext.request.Port)
+				closeWithoutError(serverConn)
+				break
+			}
 		}
 	}
 }
@@ -146,11 +157,8 @@ func Server(cfg config.ServerConfig) {
 
 	// 处理端口转发，转发访问数据
 	go func() {
-		for {
-			select {
-			case tc := <-tunnelContextChan:
-				go handleServerConnection(tc)
-			}
+		for tunnelContext := range tunnelContextChan {
+			go handleServerConnection(tunnelContext)
 		}
 	}()
 

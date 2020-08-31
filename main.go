@@ -1,43 +1,36 @@
 package main
 
 import (
+	"flag"
 	"fmt"
 	"github.com/aulang/netbus/config"
 	"github.com/aulang/netbus/core"
-	"os"
 )
+
+var server = flag.Bool("server", false, "启动服务端")
+var client = flag.Bool("client", false, "启动客户端")
+var generate = flag.Bool("generate", false, "创建客户端密钥")
 
 func printHelp() {
 	fmt.Println(`"-server" 加载 "config.yml" 启动服务端`)
 	fmt.Println(`"-client" 加载 "config.yml" 启动客户端`)
 	fmt.Println(`"-server <key> <port>" 启动服务端, 监听xxx端口', 如：-server 8888`)
 	fmt.Println(`"-client <key> <server:port> <local:port:serverPort>" 启动客户端，如：-client Aulang aulang.cn:8888 127.0.0.1:3306:13306`)
-	fmt.Println(`"-generate <key> [expired-time]" 创建一个客户端密钥, 如 -generate Aulang 2020-12-31`)
+	fmt.Println(`"-generate <key> [expired-time]" 创建客户端密钥, 如 -generate Aulang 2020-12-31`)
 }
 
 func main() {
-	args := os.Args
-	argc := len(os.Args)
-
-	if argc < 2 {
-		printHelp()
-		os.Exit(0)
-	}
-
+	flag.Parse()
 	// 获取其余参数
-	argsConfig := args[2:]
+	argsConfig := flag.Args()
 
-	switch args[1] {
-	case "-server":
-		// 外网服务
+	if *server {
 		serverConfig := config.InitServerConfig(argsConfig)
 		core.Server(serverConfig)
-	case "-client":
-		// 内网服务
+	} else if *client {
 		clientConfig := config.InitClientConfig(argsConfig)
 		core.Client(clientConfig)
-	case "-generate":
-		// 生成短期 key
+	} else if *generate {
 		var seed, expired string
 		if len(argsConfig) > 0 {
 			seed = argsConfig[0]
@@ -47,9 +40,9 @@ func main() {
 		}
 		if len(argsConfig) > 0 {
 			trialKey, _ := config.NewKey(seed, expired)
-			fmt.Println("客户端密钥 ->	", trialKey)
+			fmt.Printf("客户端密钥：%s\n", trialKey)
 		}
-	default:
+	} else {
 		printHelp()
 	}
 }

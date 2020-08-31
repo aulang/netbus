@@ -72,7 +72,7 @@ func fixLength(seed string) string {
 }
 
 // 生成 key
-func NewKey(seed string, expired string) (string, error) {
+func NewKey(seed, expired string) (string, error) {
 	ex, err := time.Parse(timeLayout, expired)
 	if err != nil {
 		ex = time.Now().Add(30 * 24 * time.Hour)

@@ -25,7 +25,7 @@ func TestClient(t *testing.T) {
 		LocalAddr: []config.NetAddress{
 			{"127.0.0.1", 7001, 17001},
 		},
-		TunnelCount: 1,
+		TunnelCount: 2,
 	}
 	core.Client(cfg)
 }

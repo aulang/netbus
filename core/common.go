@@ -84,7 +84,6 @@ func tcpDial(targetAddr config.NetAddress /*目标地址*/, maxRedialTimes int /
 	for {
 		conn, err := net.Dial("tcp", targetAddr.String())
 		if err == nil {
-			//log.Printf("Dial to [%s] success.\n", targetAddr)
 			return conn
 		}
 		redialTimes++

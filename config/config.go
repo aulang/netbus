@@ -23,7 +23,7 @@ type Yaml struct {
 
 var Config = new(Yaml)
 
-func init() {
+func init2() {
 	configFile, err := ioutil.ReadFile("config.yml")
 
 	if err != nil {
