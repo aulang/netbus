@@ -23,16 +23,16 @@ type Yaml struct {
 
 var Config = new(Yaml)
 
-func init2() {
+func init() {
 	configFile, err := ioutil.ReadFile("config.yml")
 
 	if err != nil {
-		log.Fatalf("加载配置文件失败，%v", err)
+		log.Fatalf("加载配置文件失败，%v\n", err)
 	}
 
 	err = yaml.Unmarshal(configFile, Config)
 
 	if err != nil {
-		log.Fatalf("解析配置文件失败: %v", err)
+		log.Fatalf("解析配置文件失败: %v\n", err)
 	}
 }

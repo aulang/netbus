@@ -96,7 +96,7 @@ func tcpDial(targetAddr config.NetAddress /*目标地址*/, maxRedialTimes int /
 		redialTimes++
 		if maxRedialTimes < 0 || redialTimes < maxRedialTimes {
 			// 重连模式，每5秒一次
-			log.Printf("连接到 [%s] 失败, %d秒之后重连(%d)。", targetAddr.String(), retryIntervalTime, redialTimes)
+			log.Printf("连接到 [%s] 失败, %d秒之后重连(%d)。\n", targetAddr.String(), retryIntervalTime, redialTimes)
 			time.Sleep(retryIntervalTime * time.Second)
 		} else {
 			log.Printf("连接到 [%s] 失败。 %s\n", targetAddr.String(), err.Error())
@@ -153,7 +153,7 @@ func dial(targetAddr config.NetAddress /*目标地址*/, maxRedialTimes int /*�
 
 		if maxRedialTimes < 0 || redialTimes < maxRedialTimes {
 			// 重连模式，每5秒一次
-			log.Printf("连接到 [%s] 失败, %d秒之后重连(%d)。", targetAddr.String(), retryIntervalTime, redialTimes)
+			log.Printf("连接到 [%s] 失败, %d秒之后重连(%d)。\n", targetAddr.String(), retryIntervalTime, redialTimes)
 			time.Sleep(retryIntervalTime * time.Second)
 		} else {
 			log.Printf("连接到 [%s] 失败。 %s\n", targetAddr.String(), err.Error())

@@ -32,7 +32,7 @@ func handleClientSession(cfg config.ClientConfig, localAddr config.NetAddress, w
 		flagChan <- true
 	}
 
-	log.Printf("初始化通道完成，端口号：[%d]，通道数：[%d]", localAddr.Port2, cfg.TunnelCount)
+	log.Printf("初始化通道完成，端口号：[%d]，通道数：[%d]\n", localAddr.Port2, cfg.TunnelCount)
 }
 
 func buildBridgeSession(cfg config.ClientConfig, localAddr config.NetAddress, flagChan chan bool, wg *sync.WaitGroup) {
@@ -47,14 +47,16 @@ func buildBridgeSession(cfg config.ClientConfig, localAddr config.NetAddress, fl
 		}
 
 		go func(serverAddr config.NetAddress, localAddr config.NetAddress, key string, flagChan chan bool) {
-			session := dial(serverAddr, 30)
+			session := dial(serverAddr, 10)
 			if session == nil {
-				log.Fatalf("向服务器建立连接失败：[%s]", serverAddr.String())
+				log.Fatalf("向服务器建立连接失败：[%s]\n", serverAddr.String())
 			}
 
 			// 请求建立连接
 			if !requestSession(session, key, localAddr.Port2) {
 				log.Println("发送协议数据失败！")
+				// 重新连接
+				flagChan <- true
 				return
 			}
 
@@ -100,7 +102,7 @@ func handleConnection(localAddr config.NetAddress, session quic.Session, flagCha
 		flagChan <- true
 		forward(serverStream, localConn)
 	} else {
-		log.Println("本地端口服务已停止！")
+		log.Printf("本地端口 [%d] 服务已停止！\n", localAddr.Port)
 		// 打开本地连接失败，关闭服务器流
 		closeWithoutError(serverStream)
 		// 不再创建该端口新桥
