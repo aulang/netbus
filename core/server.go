@@ -80,14 +80,15 @@ func checkRequest(req Protocol, cfg config.ServerConfig) byte {
 
 // 处理端口转发，转发访问数据
 func handleServerConnection(tunnelContext TunnelContext) {
+	listenPort := tunnelContext.request.Port
 	// 监听服务端端口TCP数据
-	listener, err := tcpListen(tunnelContext.request.Port)
+	listener, err := tcpListen(listenPort)
 	if err != nil {
-		log.Printf("监听指定端口失败：[%d]，端口已被占用：[%s]", tunnelContext.request.Port, err.Error())
-		tunnelContextMap.Delete(tunnelContext.request.Port)
+		log.Printf("监听指定端口失败：[%d]，端口已被占用：[%s]", listenPort, err.Error())
+		tunnelContextMap.Delete(listenPort)
 		return
 	}
-	log.Printf("正在监听指定端口：[%d]\n", tunnelContext.request.Port)
+	log.Printf("正在监听指定端口：[%d]\n", listenPort)
 
 	for {
 		serverConn, err := listener.Accept()
@@ -121,9 +122,9 @@ func handleServerConnection(tunnelContext TunnelContext) {
 		case <-time.After(protocolSendTimeout * time.Second):
 			{
 				// 超时未拿到客户端连接，断开连接，停止端口监听
-				log.Printf("获取客户端连接超时，关闭服务器连接和该端口监听！")
-				tunnelContextMap.Delete(tunnelContext.request.Port)
-				closeWithoutError(serverConn)
+				log.Printf("获取客户端连接超时，关闭端口监听：[%d]", listenPort)
+				closeWithoutError(serverConn, listener)
+				tunnelContextMap.Delete(listenPort)
 				return
 			}
 		}

@@ -5,6 +5,7 @@ import (
 	"github.com/aulang/netbus/config"
 	"github.com/lucas-clemente/quic-go"
 	"log"
+	"sync"
 )
 
 // 请求连接
@@ -20,38 +21,39 @@ func requestSession(session quic.Session, key string, port uint32) bool {
 }
 
 // 处理客户端连接
-func handleClientSession(cfg config.ClientConfig, index int) {
+func handleClientSession(cfg config.ClientConfig, localAddr config.NetAddress, wg *sync.WaitGroup) {
 	flagChan := make(chan bool)
-	sessionChan := make(chan quic.Session)
 
 	// 远程拨号，建桥
-	go buildBridgeSession(cfg, index, sessionChan, flagChan)
-
-	// 本地连接拨号，并建立双向通道
-	go buildLocalConnection(cfg.LocalAddr[index], sessionChan, flagChan)
+	go buildBridgeSession(cfg, localAddr, flagChan, wg)
 
 	// 初始化连接
 	for i := 0; i < cfg.TunnelCount; i++ {
 		flagChan <- true
 	}
 
-	log.Printf("初始化通道完成，端口号：[%d]，通道数：[%d]", cfg.LocalAddr[index].Port2, cfg.TunnelCount)
+	log.Printf("初始化通道完成，端口号：[%d]，通道数：[%d]", localAddr.Port2, cfg.TunnelCount)
 }
 
-func buildBridgeSession(cfg config.ClientConfig, index int, sessionChan chan quic.Session, flagChan chan bool) {
+func buildBridgeSession(cfg config.ClientConfig, localAddr config.NetAddress, flagChan chan bool, wg *sync.WaitGroup) {
 	key := cfg.Key
 	serverAddr := cfg.ServerAddr
-	localPort := cfg.LocalAddr[index].Port2
 
-	for range flagChan {
-		go func(serverAddr config.NetAddress, localPort uint32, key string, sessionChan chan quic.Session, flagChan chan bool) {
+	for flag := range flagChan {
+		if !flag {
+			// 不再创建新桥
+			wg.Done()
+			return
+		}
+
+		go func(serverAddr config.NetAddress, localAddr config.NetAddress, key string, flagChan chan bool) {
 			session := dial(serverAddr, 30)
 			if session == nil {
 				log.Fatalf("向服务器建立连接失败：[%s]", serverAddr.String())
 			}
 
 			// 请求建立连接
-			if !requestSession(session, key, localPort) {
+			if !requestSession(session, key, localAddr.Port2) {
 				log.Println("发送协议数据失败！")
 				return
 			}
@@ -62,8 +64,8 @@ func buildBridgeSession(cfg config.ClientConfig, index int, sessionChan chan qui
 			// 处理连接结果
 			switch resp.Result {
 			case protocolResultSuccess:
-				// 服务器端接收到数据，准备数据传输
-				sessionChan <- session
+				// 接收到服务器端数据，准备数据传输
+				go handleConnection(localAddr, session, flagChan)
 			case protocolResultVersionMismatch:
 				// 版本不匹配，退出客户端
 				log.Fatalln("版本不匹配！")
@@ -77,34 +79,32 @@ func buildBridgeSession(cfg config.ClientConfig, index int, sessionChan chan qui
 				// 连接中断，重新连接
 				flagChan <- true
 			}
-		}(serverAddr, localPort, key, sessionChan, flagChan)
+		}(serverAddr, localAddr, key, flagChan)
 	}
 }
 
 // 本地服务连接拨号，并建立双向通道
-func buildLocalConnection(local config.NetAddress, sessionChan chan quic.Session, flagChan chan bool) {
-	for session := range sessionChan {
-		// 建立本地连接访问
-		go func(session quic.Session, local config.NetAddress, sessionChan chan quic.Session, flagChan chan bool) {
-			// 通知创建新桥
-			flagChan <- true
-			// 打开流进行数据传输
-			serverStream, err := session.AcceptStream(context.Background())
-			if err != nil {
-				log.Println("打开服务端流失败！", err)
-				return
-			}
+func handleConnection(localAddr config.NetAddress, session quic.Session, flagChan chan bool) {
+	// 打开流进行数据传输
+	serverStream, err := session.AcceptStream(context.Background())
+	if err != nil {
+		log.Println("打开服务端流失败！", err)
+		// 通知创建新桥
+		flagChan <- true
+		return
+	}
 
-			// 建立本地连接，进行连接数据传输
-			if localConn := tcpDial(local, 5); localConn != nil {
-				forward(serverStream, localConn)
-			} else {
-				// 打开本地连接失败，关闭服务器流
-				closeWithoutError(serverStream)
-				// TODO 多端口时应该停止该端口数据传输，而不是所有
-				log.Fatalln("本地端口服务已停止！")
-			}
-		}(session, local, sessionChan, flagChan)
+	// 建立本地连接，进行连接数据传输
+	if localConn := tcpDial(localAddr, 5); localConn != nil {
+		// 通知创建新桥
+		flagChan <- true
+		forward(serverStream, localConn)
+	} else {
+		log.Println("本地端口服务已停止！")
+		// 打开本地连接失败，关闭服务器流
+		closeWithoutError(serverStream)
+		// 不再创建该端口新桥
+		flagChan <- false
 	}
 }
 
@@ -112,10 +112,14 @@ func buildLocalConnection(local config.NetAddress, sessionChan chan quic.Session
 func Client(cfg config.ClientConfig) {
 	log.Println("加载配置：", cfg)
 
+	var wg sync.WaitGroup
+
+	wg.Add(len(cfg.LocalAddr))
+
 	// 遍历所有端口建桥
-	for index := range cfg.LocalAddr {
-		go handleClientSession(cfg, index)
+	for _, localAddr := range cfg.LocalAddr {
+		go handleClientSession(cfg, localAddr, &wg)
 	}
 
-	select {}
+	wg.Wait()
 }
