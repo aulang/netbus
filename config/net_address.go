@@ -15,13 +15,13 @@ type NetAddress struct {
 }
 
 // 转字符串
-func (t *NetAddress) String() string {
-	return fmt.Sprintf("%s:%d", t.Host, t.Port)
+func (n *NetAddress) String() string {
+	return fmt.Sprintf("%s:%d", n.Host, n.Port)
 }
 
 // 完整字符串
-func (t *NetAddress) FullString() string {
-	return fmt.Sprintf("%s:%d:%d", t.Host, t.Port, t.Port2)
+func (n *NetAddress) FullString() string {
+	return fmt.Sprintf("%s:%d:%d", n.Host, n.Port, n.Port2)
 }
 
 // 解析多个地址

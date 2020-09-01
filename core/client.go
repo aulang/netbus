@@ -61,13 +61,13 @@ func buildBridgeSession(cfg config.ClientConfig, localAddr config.NetAddress, fl
 			}
 
 			// 等待服务器端接收数据响应
-			resp := receiveProtocol(session)
+			protocol := receiveProtocol(session)
 
 			// 处理连接结果
-			switch resp.Result {
+			switch protocol.Result {
 			case protocolResultSuccess:
 				// 接收到服务器端数据，准备数据传输
-				go handleConnection(localAddr, session, flagChan)
+				handleConnection(localAddr, session, flagChan)
 			case protocolResultVersionMismatch:
 				// 版本不匹配，退出客户端
 				log.Fatalln("版本不匹配！")

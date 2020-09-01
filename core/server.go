@@ -25,16 +25,16 @@ var (
 // 处理客户端QUIC请求
 func handleBridgeSession(session quic.Session, cfg config.ServerConfig, tunnelContextChan chan TunnelContext) {
 	// 接收客户端发送的协议消息
-	req := receiveProtocol(session)
+	protocol := receiveProtocol(session)
 	// 检查请求合法性
-	if protocolResult := checkRequest(req, cfg); protocolResult != protocolResultSuccess {
+	if protocolResult := checkRequest(protocol, cfg); protocolResult != protocolResultSuccess {
 		// 协议不合法，发送失败信息，不在处理
-		sendProtocol(session, req.NewResult(protocolResult))
+		sendProtocol(session, protocol.NewResult(protocolResult))
 		return
 	}
 
 	// 建立连接关系，{服务器监听端口 <-> 客户端会话连接池}
-	tc, exists := tunnelContextMap.Load(req.Port)
+	tc, exists := tunnelContextMap.Load(protocol.Port)
 	if exists {
 		tc.(TunnelContext).sessionChan <- session
 		return
@@ -43,36 +43,36 @@ func handleBridgeSession(session quic.Session, cfg config.ServerConfig, tunnelCo
 	// 第一次创建才会执行，避免每次都加锁
 	tunnelContextMutex.Lock()
 	defer tunnelContextMutex.Unlock()
-	tc, exists = tunnelContextMap.Load(req.Port)
+	tc, exists = tunnelContextMap.Load(protocol.Port)
 	if !exists {
 		tc = TunnelContext{
-			request:     req,
+			request:     protocol,
 			sessionChan: make(chan quic.Session),
 		}
-		tunnelContextMap.Store(req.Port, tc)
+		tunnelContextMap.Store(protocol.Port, tc)
 		tunnelContextChan <- tc.(TunnelContext)
 	}
 	tc.(TunnelContext).sessionChan <- session
 }
 
 // 检查请求信息，返回结果
-func checkRequest(req Protocol, cfg config.ServerConfig) byte {
-	if !req.Success() {
-		return req.Result
+func checkRequest(protocol Protocol, cfg config.ServerConfig) byte {
+	if !protocol.Success() {
+		return protocol.Result
 	}
 	// 检查版本号
-	if req.Version != protocolVersion {
-		log.Println("版本号不匹配！", req.String())
+	if protocol.Version != protocolVersion {
+		log.Println("版本号不匹配！", protocol.String())
 		return protocolResultVersionMismatch
 	}
 	// 检查权限
-	if _, ok := config.CheckKey(cfg.Key, req.Key); !ok {
-		log.Println("认证失败！", req.String())
+	if _, ok := config.CheckKey(cfg.Key, protocol.Key); !ok {
+		log.Println("认证失败！", protocol.String())
 		return protocolResultFailToAuth
 	}
 	// 检查访问端口是否在允许范围内
-	if ok := cfg.PortInRange(req.Port); !ok {
-		log.Println("访问端口不合法！", req.String())
+	if ok := cfg.PortInRange(protocol.Port); !ok {
+		log.Println("访问端口不合法！", protocol.String())
 		return protocolResultIllegalAccessPort
 	}
 	return protocolResultSuccess
@@ -100,24 +100,26 @@ func handleServerConnection(tunnelContext TunnelContext) {
 		select {
 		case bridgeSession := <-tunnelContext.sessionChan:
 			{
-				// 发送成功协议，连接保活
-				if sendProtocol(bridgeSession, tunnelContext.request.NewResult(protocolResultSuccess)) {
-					// 打开流进行数据传输
-					bridgeStream, err := bridgeSession.OpenStream()
-					if err != nil {
-						// 打开客户端流失败，关闭连接
-						log.Println("打开客户端流失败！")
+				go func(bridgeSession quic.Session, tunnelContext TunnelContext) {
+					// 发送成功协议，连接保活
+					if sendProtocol(bridgeSession, tunnelContext.request.NewResult(protocolResultSuccess)) {
+						// 打开流进行数据传输
+						bridgeStream, err := bridgeSession.OpenStream()
+						if err != nil {
+							// 打开客户端流失败，关闭连接
+							log.Println("打开客户端流失败！")
+							closeWithoutError(serverConn)
+							return
+						}
+						// 进行数据传输
+						forward(serverConn, bridgeStream)
+					} else {
+						// 发送协议失败，关闭连接
+						log.Println("发送客户端协议失败，关闭服务器连接！")
 						closeWithoutError(serverConn)
-						continue
+						return
 					}
-					// 进行数据传输
-					go forward(serverConn, bridgeStream)
-				} else {
-					// 发送协议失败，关闭连接
-					log.Println("发送客户端协议失败，关闭服务器连接！")
-					closeWithoutError(serverConn)
-					continue
-				}
+				}(bridgeSession, tunnelContext)
 			}
 		case <-time.After(protocolSendTimeout * time.Second):
 			{
@@ -135,17 +137,17 @@ func handleServerConnection(tunnelContext TunnelContext) {
 func Server(cfg config.ServerConfig) {
 	log.Println("加载服务端配置：", cfg)
 
-	// 监听客户端QUIC桥接端口
-	bridgeListener, err := listen(cfg.Port)
-	if err != nil {
-		log.Fatalf("监听端口失败：[%d]，端口已被占用：[%s]\n", cfg.Port, err.Error())
-	}
-
 	// 服务器监听端口 <-> 客户端会话池
 	tunnelContextChan := make(chan TunnelContext)
 
 	// 受理来自客户端QUIC连接请求
-	go func() {
+	go func(tunnelContextChan chan TunnelContext) {
+		// 监听客户端QUIC桥接端口
+		bridgeListener, err := listen(cfg.Port)
+		if err != nil {
+			log.Fatalf("监听端口失败：[%d]，端口已被占用：[%s]\n", cfg.Port, err.Error())
+		}
+
 		for {
 			bridgeSession, err := bridgeListener.Accept(context.Background())
 			if err != nil {
@@ -154,14 +156,10 @@ func Server(cfg config.ServerConfig) {
 			}
 			go handleBridgeSession(bridgeSession, cfg, tunnelContextChan)
 		}
-	}()
+	}(tunnelContextChan)
 
 	// 处理端口转发，转发访问数据
-	go func() {
-		for tunnelContext := range tunnelContextChan {
-			go handleServerConnection(tunnelContext)
-		}
-	}()
-
-	select {}
+	for tunnelContext := range tunnelContextChan {
+		go handleServerConnection(tunnelContext)
+	}
 }

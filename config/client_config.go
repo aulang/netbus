@@ -61,6 +61,8 @@ func parseClientConfig(args []string) ClientConfig {
 func loadClientConfig() ClientConfig {
 	config := ClientConfig{}
 
+	config.Key = Config.Client.Key
+
 	var ok bool
 	if config.ServerAddr, ok = ParseNetAddress(Config.Client.ServerHost); !ok {
 		log.Fatalln("服务端地址配置错误。", Config.Client.ServerHost)
