@@ -79,7 +79,7 @@ func checkRequest(protocol Protocol, cfg config.ServerConfig) byte {
 }
 
 // 处理端口转发，转发访问数据
-func handleServerConnection(tunnelContext TunnelContext) {
+func handleBridgeConnection(tunnelContext TunnelContext) {
 	listenPort := tunnelContext.request.Port
 	// 监听服务端端口TCP数据
 	listener, err := tcpListen(listenPort)
@@ -91,7 +91,7 @@ func handleServerConnection(tunnelContext TunnelContext) {
 	log.Printf("正在监听指定端口：[%d]\n", listenPort)
 
 	for {
-		serverConn, err := listener.Accept()
+		bridgeConnection, err := listener.Accept()
 		if err != nil {
 			log.Println("接受服务端口连接失败！", err)
 			continue
@@ -108,24 +108,24 @@ func handleServerConnection(tunnelContext TunnelContext) {
 						if err != nil {
 							// 打开客户端流失败，关闭连接
 							log.Println("打开客户端流失败！")
-							closeWithoutError(serverConn)
+							closeWithoutError(bridgeConnection)
 							return
 						}
 						// 进行数据传输
-						forward(serverConn, bridgeStream)
+						forward(bridgeConnection, bridgeStream)
 					} else {
 						// 发送协议失败，关闭连接
 						log.Println("发送客户端协议失败，关闭服务器连接！")
-						closeWithoutError(serverConn)
+						closeWithoutError(bridgeConnection)
 						return
 					}
 				}(bridgeSession, tunnelContext)
 			}
-		case <-time.After(protocolSendTimeout * time.Second):
+		case <-time.After(connectTimeout * time.Second):
 			{
 				// 超时未拿到客户端连接，断开连接，停止端口监听
 				log.Printf("获取客户端连接超时，关闭端口监听：[%d]\n", listenPort)
-				closeWithoutError(serverConn, listener)
+				closeWithoutError(bridgeConnection, listener)
 				tunnelContextMap.Delete(listenPort)
 				return
 			}
@@ -160,6 +160,6 @@ func Server(cfg config.ServerConfig) {
 
 	// 处理端口转发，转发访问数据
 	for tunnelContext := range tunnelContextChan {
-		go handleServerConnection(tunnelContext)
+		go handleBridgeConnection(tunnelContext)
 	}
 }

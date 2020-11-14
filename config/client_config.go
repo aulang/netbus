@@ -9,7 +9,7 @@ import (
 const (
 	// 默认最大隧道数
 	minTunnelCount = 1
-	maxTunnelCount = 5
+	maxTunnelCount = 10
 )
 
 // 客户端配置
@@ -17,7 +17,7 @@ type ClientConfig struct {
 	Key         string       // 参考服务端配置
 	ServerAddr  NetAddress   // 服务端地址
 	LocalAddr   []NetAddress // 内网服务地址及映射端口
-	TunnelCount int          // 隧道条数(1-5)
+	TunnelCount int          // 隧道条数(1-10)
 }
 
 var clientConfig ClientConfig

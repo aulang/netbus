@@ -18,11 +18,11 @@ const (
 	protocolResultVersionMismatch   = 4 // 版本不匹配
 	protocolResultIllegalAccessPort = 5 // 访问端口不合法
 
-	// 协议发送超时时间，单位：秒
-	protocolSendTimeout = 10
-
 	// 版本号(单调递增)
-	protocolVersion = 5
+	protocolVersion = 1
+
+	// 协议发送超时时间，单位：秒
+	connectTimeout = 60
 )
 
 // 协议格式

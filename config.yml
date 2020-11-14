@@ -21,5 +21,5 @@ client:
   # 内网IP:内网端口:访问端口
   local-host-mapping:
     - 127.0.0.1:7001:17001
-  # 隧道条数，默认1，范围[1-5]
-  tunnel-count: 2
+  # 隧道条数，默认1，范围[1-10]
+  tunnel-count: 3

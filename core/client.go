@@ -20,8 +20,8 @@ func requestSession(session quic.Session, key string, port uint32) bool {
 	return sendProtocol(session, request)
 }
 
-// 处理客户端连接
-func handleClientSession(cfg config.ClientConfig, localAddr config.NetAddress, wg *sync.WaitGroup) {
+// 创建服务端会话
+func openServerSession(cfg config.ClientConfig, localAddr config.NetAddress, wg *sync.WaitGroup) {
 	flagChan := make(chan bool)
 
 	// 远程拨号，建桥
@@ -66,6 +66,8 @@ func buildBridgeSession(cfg config.ClientConfig, localAddr config.NetAddress, fl
 			// 处理连接结果
 			switch protocol.Result {
 			case protocolResultSuccess:
+				// 通知创建新桥
+				flagChan <- true
 				// 接收到服务器端数据，准备数据传输
 				handleConnection(localAddr, session, flagChan)
 			case protocolResultVersionMismatch:
@@ -91,15 +93,11 @@ func handleConnection(localAddr config.NetAddress, session quic.Session, flagCha
 	serverStream, err := session.AcceptStream(context.Background())
 	if err != nil {
 		log.Println("打开服务端流失败！", err)
-		// 通知创建新桥
-		flagChan <- true
 		return
 	}
 
 	// 建立本地连接，进行连接数据传输
 	if localConn := tcpDial(localAddr, 5); localConn != nil {
-		// 通知创建新桥
-		flagChan <- true
 		forward(serverStream, localConn)
 	} else {
 		log.Printf("本地端口 [%d] 服务已停止！\n", localAddr.Port)
@@ -120,7 +118,7 @@ func Client(cfg config.ClientConfig) {
 
 	// 遍历所有端口建桥
 	for _, localAddr := range cfg.LocalAddr {
-		go handleClientSession(cfg, localAddr, &wg)
+		go openServerSession(cfg, localAddr, &wg)
 	}
 
 	wg.Wait()

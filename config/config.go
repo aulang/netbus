@@ -4,6 +4,7 @@ import (
 	"gopkg.in/yaml.v2"
 	"io/ioutil"
 	"log"
+	"path/filepath"
 )
 
 type Yaml struct {
@@ -24,7 +25,14 @@ type Yaml struct {
 var Config = new(Yaml)
 
 func init() {
-	configFile, err := ioutil.ReadFile("config.yml")
+	// 获取文件相对于当前工作目录的相对路径
+	configFilePath, err := filepath.Abs("config.yml")
+
+	if err != nil {
+		log.Fatalf("加载配置文件失败，%v\n", err)
+	}
+
+	configFile, err := ioutil.ReadFile(configFilePath)
 
 	if err != nil {
 		log.Fatalf("加载配置文件失败，%v\n", err)
