@@ -22,7 +22,7 @@ const (
 	protocolVersion = 1
 
 	// 协议发送超时时间，单位：秒
-	connectTimeout = 60
+	connectTimeout = 10
 )
 
 // 协议格式
