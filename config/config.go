@@ -10,22 +10,22 @@ import (
 
 type Yaml struct {
 	Server struct {
-		Key           string `yaml:"key"`
-		Port          uint32 `yaml:"port"`
-		MinAccessPort uint32 `yaml:"min-access-port"`
-		MaxAccessPort uint32 `yaml:"max-access-port"`
+		Key          string `yaml:"key"`
+		Port         uint32 `yaml:"port"`
+		MinProxyPort uint32 `yaml:"min-proxy-port"`
+		MaxProxyPort uint32 `yaml:"max-proxy-port"`
 	}
 	Client struct {
-		Key              string   `yaml:"key"`
-		ServerHost       string   `yaml:"server-host"`
-		LocalHostMapping []string `yaml:"local-host-mapping"`
-		TunnelCount      int      `yaml:"tunnel-count"`
+		Key           string   `yaml:"key"`
+		ServerAddr    string   `yaml:"server-addr"`
+		ProxyMappings []string `yaml:"proxy-mappings"`
+		TunnelCount   int      `yaml:"tunnel-count"`
 	}
 }
 
 var Config = new(Yaml)
 
-func init() {
+func LoadConfigFile() {
 	// 获取可执行文件相对于当前工作目录的相对路径
 	root := filepath.Dir(os.Args[0])
 

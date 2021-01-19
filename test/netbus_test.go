@@ -8,10 +8,10 @@ import (
 
 func TestServer(t *testing.T) {
 	cfg := config.ServerConfig{
-		Key:           "Aulang",
-		Port:          8888,
-		MinAccessPort: 10000,
-		MaxAccessPort: 20000,
+		Key:          "Aulang",
+		Port:         8888,
+		MinProxyPort: 10000,
+		MaxProxyPort: 20000,
 	}
 	core.Server(cfg)
 }
@@ -22,10 +22,10 @@ func TestClient(t *testing.T) {
 		ServerAddr: config.NetAddress{
 			Host: "127.0.0.1", Port: 8888,
 		},
-		LocalAddr: []config.NetAddress{
+		ProxyAddrs: []config.NetAddress{
 			{"127.0.0.1", 7001, 17001},
 		},
-		TunnelCount: 2,
+		TunnelCount: 1,
 	}
 	core.Client(cfg)
 }

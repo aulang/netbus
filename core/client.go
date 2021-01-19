@@ -8,8 +8,8 @@ import (
 	"sync"
 )
 
-// 请求连接
-func requestSession(session quic.Session, key string, port uint32) bool {
+// 发送代理请求
+func sendProxyRequest(session quic.Session, key string, port uint32) bool {
 	request := Protocol{
 		Result:  protocolResultSuccess,
 		Version: protocolVersion,
@@ -20,22 +20,25 @@ func requestSession(session quic.Session, key string, port uint32) bool {
 	return sendProtocol(session, request)
 }
 
-// 创建服务端会话
-func openServerSession(cfg config.ClientConfig, localAddr config.NetAddress, wg *sync.WaitGroup) {
+// 打开服务端代理连接
+func openProxyConnection(cfg config.ClientConfig, proxyAddr config.NetAddress, wg *sync.WaitGroup) {
 	flagChan := make(chan bool)
 
-	// 远程拨号，建桥
-	go buildBridgeSession(cfg, localAddr, flagChan, wg)
+	// 远程拨号，建立代理会话
+	go openProxySession(cfg, proxyAddr, flagChan, wg)
 
 	// 初始化连接
 	for i := 0; i < cfg.TunnelCount; i++ {
 		flagChan <- true
 	}
 
-	log.Printf("初始化通道完成，端口号：[%d]，通道数：[%d]\n", localAddr.Port2, cfg.TunnelCount)
+	log.Printf("初始化通道完成，本地端口：[%d]，服务器代理端口号：[%d]，通道数：[%d]\n",
+		proxyAddr.Port,
+		proxyAddr.ProxyPort,
+		cfg.TunnelCount)
 }
 
-func buildBridgeSession(cfg config.ClientConfig, localAddr config.NetAddress, flagChan chan bool, wg *sync.WaitGroup) {
+func openProxySession(cfg config.ClientConfig, proxyAddr config.NetAddress, flagChan chan bool, wg *sync.WaitGroup) {
 	key := cfg.Key
 	serverAddr := cfg.ServerAddr
 
@@ -46,14 +49,14 @@ func buildBridgeSession(cfg config.ClientConfig, localAddr config.NetAddress, fl
 			return
 		}
 
-		go func(serverAddr config.NetAddress, localAddr config.NetAddress, key string, flagChan chan bool) {
-			session := dial(serverAddr, 10)
-			if session == nil {
+		go func(serverAddr config.NetAddress, proxyAddr config.NetAddress, key string, flagChan chan bool) {
+			serverSession := dial(serverAddr, 10)
+			if serverSession == nil {
 				log.Fatalf("向服务器建立连接失败：[%s]\n", serverAddr.String())
 			}
 
 			// 请求建立连接
-			if !requestSession(session, key, localAddr.Port2) {
+			if !sendProxyRequest(serverSession, key, proxyAddr.ProxyPort) {
 				log.Println("发送协议数据失败！")
 				// 重新连接
 				flagChan <- true
@@ -61,15 +64,14 @@ func buildBridgeSession(cfg config.ClientConfig, localAddr config.NetAddress, fl
 			}
 
 			// 等待服务器端接收数据响应
-			protocol := receiveProtocol(session)
+			protocol := receiveProtocol(serverSession)
 
 			// 处理连接结果
 			switch protocol.Result {
 			case protocolResultSuccess:
-				// 通知创建新桥
 				flagChan <- true
 				// 接收到服务器端数据，准备数据传输
-				handleConnection(localAddr, session, flagChan)
+				recvData(proxyAddr, serverSession)
 			case protocolResultVersionMismatch:
 				// 版本不匹配，退出客户端
 				log.Fatalln("版本不匹配！")
@@ -83,28 +85,26 @@ func buildBridgeSession(cfg config.ClientConfig, localAddr config.NetAddress, fl
 				// 连接中断，重新连接
 				flagChan <- true
 			}
-		}(serverAddr, localAddr, key, flagChan)
+		}(serverAddr, proxyAddr, key, flagChan)
 	}
 }
 
 // 本地服务连接拨号，并建立双向通道
-func handleConnection(localAddr config.NetAddress, session quic.Session, flagChan chan bool) {
+func recvData(proxyAddr config.NetAddress, serverSession quic.Session) {
 	// 打开流进行数据传输
-	serverStream, err := session.AcceptStream(context.Background())
+	serverStream, err := serverSession.AcceptStream(context.Background())
 	if err != nil {
 		log.Println("打开服务端流失败！", err)
 		return
 	}
 
 	// 建立本地连接，进行连接数据传输
-	if localConn := tcpDial(localAddr, 5); localConn != nil {
+	if localConn := tcpDial(proxyAddr, 5); localConn != nil {
 		forward(serverStream, localConn)
 	} else {
-		log.Printf("本地端口 [%d] 服务已停止！\n", localAddr.Port)
+		log.Printf("本地端口 [%d] 服务已停止！\n", proxyAddr.Port)
 		// 打开本地连接失败，关闭服务器流
 		closeWithoutError(serverStream)
-		// 不再创建该端口新桥
-		flagChan <- false
 	}
 }
 
@@ -114,11 +114,11 @@ func Client(cfg config.ClientConfig) {
 
 	var wg sync.WaitGroup
 
-	wg.Add(len(cfg.LocalAddr))
+	wg.Add(len(cfg.ProxyAddrs))
 
-	// 遍历所有端口建桥
-	for _, localAddr := range cfg.LocalAddr {
-		go openServerSession(cfg, localAddr, &wg)
+	// 遍历所有代理地址配置，建立代理连接
+	for _, proxyAddr := range cfg.ProxyAddrs {
+		go openProxyConnection(cfg, proxyAddr, &wg)
 	}
 
 	wg.Wait()

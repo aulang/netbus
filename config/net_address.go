@@ -9,9 +9,9 @@ import (
 
 // 网络地址
 type NetAddress struct {
-	Host  string
-	Port  uint32
-	Port2 uint32
+	Host      string
+	Port      uint32
+	ProxyPort uint32
 }
 
 // 转字符串
@@ -21,7 +21,7 @@ func (n *NetAddress) String() string {
 
 // 完整字符串
 func (n *NetAddress) FullString() string {
-	return fmt.Sprintf("%s:%d:%d", n.Host, n.Port, n.Port2)
+	return fmt.Sprintf("%s:%d:%d", n.Host, n.Port, n.ProxyPort)
 }
 
 // 解析多个地址
@@ -58,16 +58,16 @@ func ParseNetAddress(address string) (NetAddress, bool) {
 		log.Println("端口号格式不对！")
 		return NetAddress{}, false
 	}
-	port2 := port
+	proxyPort := port
 	// 如果配置有 port2 ，则增加解析
 	if len(arr) == 3 {
-		port2, err = parsePort(arr[2])
-		if err != nil || !checkPort(port2) {
+		proxyPort, err = parsePort(arr[2])
+		if err != nil || !checkPort(proxyPort) {
 			log.Println("地址:端口号格式不对")
 			return NetAddress{}, false
 		}
 	}
-	return NetAddress{host, port, port2}, true
+	return NetAddress{host, port, proxyPort}, true
 }
 
 // 解析单个端口

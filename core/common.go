@@ -176,7 +176,7 @@ func quicCopy(src io.ReadCloser, dst io.WriteCloser, wg *sync.WaitGroup) {
 	wg.Done()
 }
 
-// 连接转发
+// 连接数据转发
 func forward(src io.ReadWriteCloser, dst io.ReadWriteCloser) {
 	var wg sync.WaitGroup
 

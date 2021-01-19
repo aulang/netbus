@@ -20,9 +20,6 @@ const (
 
 	// 版本号(单调递增)
 	protocolVersion = 1
-
-	// 协议发送超时时间，单位：秒
-	connectTimeout = 10
 )
 
 // 协议格式
