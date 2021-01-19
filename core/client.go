@@ -69,9 +69,8 @@ func openProxySession(cfg config.ClientConfig, proxyAddr config.NetAddress, flag
 			// 处理连接结果
 			switch protocol.Result {
 			case protocolResultSuccess:
-				flagChan <- true
 				// 接收到服务器端数据，准备数据传输
-				recvData(proxyAddr, serverSession)
+				recvData(proxyAddr, serverSession, flagChan)
 			case protocolResultVersionMismatch:
 				// 版本不匹配，退出客户端
 				log.Fatalln("版本不匹配！")
@@ -90,21 +89,24 @@ func openProxySession(cfg config.ClientConfig, proxyAddr config.NetAddress, flag
 }
 
 // 本地服务连接拨号，并建立双向通道
-func recvData(proxyAddr config.NetAddress, serverSession quic.Session) {
+func recvData(proxyAddr config.NetAddress, serverSession quic.Session, flagChan chan bool) {
 	// 打开流进行数据传输
 	serverStream, err := serverSession.AcceptStream(context.Background())
 	if err != nil {
 		log.Println("打开服务端流失败！", err)
+		flagChan <- true
 		return
 	}
 
 	// 建立本地连接，进行连接数据传输
 	if localConn := tcpDial(proxyAddr, 5); localConn != nil {
+		flagChan <- true
 		forward(serverStream, localConn)
 	} else {
 		log.Printf("本地端口 [%d] 服务已停止！\n", proxyAddr.Port)
 		// 打开本地连接失败，关闭服务器流
 		closeWithoutError(serverStream)
+		flagChan <- true
 	}
 }
 
