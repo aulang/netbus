@@ -107,7 +107,7 @@ func handleProxyConnection(clientTunnel ClientTunnel) {
 		for clientSession := range clientTunnel.sessionChan {
 			go func(proxyConnection net.Conn, clientSession quic.Session) {
 				// 打开客户端连接，转发代理数据
-				clientStream, err := clientSession.OpenStream()
+				clientStream, err := clientSession.OpenStreamSync(context.Background())
 				if err != nil {
 					// 打开客户端流失败，关闭连接
 					log.Println("打开客户端流失败！", err)
@@ -115,7 +115,7 @@ func handleProxyConnection(clientTunnel ClientTunnel) {
 					return
 				}
 				// 进行数据传输
-				forward(proxyConnection, clientStream)
+				forward(proxyConnection, clientStream, nil)
 			}(proxyConnection, clientSession)
 		}
 	}

@@ -16,7 +16,7 @@ client:
   # Key 与服务端保持一致
   key: Aulang
   # 服务端地址，格式如 aulang.cn:8888
-  ServerAddr: 127.0.0.1:8888
+  server-addr: 127.0.0.1:8888
   # 内网被代理服务地址及访问端口(多个用逗号隔开)，格式如 127.0.0.1:7001:17001
   # 内网IP:内网端口:访问端口
   proxy-mappings:

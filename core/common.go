@@ -170,20 +170,28 @@ func listen(port uint32) (quic.Listener, error) {
 
 // 连接数据复制
 func quicCopy(src io.ReadCloser, dst io.WriteCloser, wg *sync.WaitGroup) {
+	wg.Add(1)
+
 	if _, err := ioCopy(dst, src); err != nil {
 		log.Println("连接中断！", err)
 	}
+
+	closeWithoutError(dst)
+
 	wg.Done()
 }
 
 // 连接数据转发
-func forward(src io.ReadWriteCloser, dst io.ReadWriteCloser) {
+func forward(src io.ReadWriteCloser, dst io.ReadWriteCloser, flagChan chan bool) {
 	var wg sync.WaitGroup
 
-	wg.Add(2)
 	go quicCopy(src, dst, &wg)
 	go quicCopy(dst, src, &wg)
+
 	wg.Wait()
 
-	closeWithoutError(src, dst)
+	// 数据传输连接完成或者都断开，可以开始新的连接
+	if flagChan != nil {
+		flagChan <- true
+	}
 }

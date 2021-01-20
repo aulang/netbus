@@ -84,15 +84,19 @@ func parseProtocol(body []byte) Protocol {
 // 协议长度只支持到255
 func sendProtocol(session quic.Session, protocol Protocol) bool {
 	// 此处会阻塞，以等待访问者连接
-	stream, err := session.OpenStream()
+	stream, err := session.OpenStreamSync(context.Background())
 	if err != nil {
 		log.Println("打开发送协议流失败！", err)
 		return false
 	}
 
+	// 关闭流
+	defer closeWithoutError(stream)
+
 	pbs := protocol.Bytes()
 
 	buffer := bytes.NewBuffer([]byte{})
+	// 数据长度
 	buffer.WriteByte(byte(len(pbs)))
 	buffer.Write(pbs)
 
@@ -101,9 +105,6 @@ func sendProtocol(session quic.Session, protocol Protocol) bool {
 		log.Println("发送协议数据失败！", err)
 		return false
 	}
-
-	// 关闭流
-	closeWithoutError(stream)
 
 	return true
 }
@@ -118,6 +119,9 @@ func receiveProtocol(session quic.Session) Protocol {
 		return Protocol{Result: protocolResultFailToReceive}
 	}
 
+	// 关闭流
+	defer closeWithoutError(stream)
+
 	var length byte
 	if err = binary.Read(stream, binary.BigEndian, &length); err != nil {
 		log.Println("接受协议数据失败！", err)
@@ -129,9 +133,6 @@ func receiveProtocol(session quic.Session) Protocol {
 		log.Println("接受协议数据失败！", err)
 		return Protocol{Result: protocolResultFailToReceive}
 	}
-
-	// 关闭流
-	closeWithoutError(stream)
 
 	return parseProtocol(body)
 }

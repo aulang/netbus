@@ -100,8 +100,7 @@ func recvData(proxyAddr config.NetAddress, serverSession quic.Session, flagChan 
 
 	// 建立本地连接，进行连接数据传输
 	if localConn := tcpDial(proxyAddr, 5); localConn != nil {
-		flagChan <- true
-		forward(serverStream, localConn)
+		forward(serverStream, localConn, flagChan)
 	} else {
 		log.Printf("本地端口 [%d] 服务已停止！\n", proxyAddr.Port)
 		// 打开本地连接失败，关闭服务器流
@@ -116,10 +115,10 @@ func Client(cfg config.ClientConfig) {
 
 	var wg sync.WaitGroup
 
-	wg.Add(len(cfg.ProxyAddrs))
-
 	// 遍历所有代理地址配置，建立代理连接
 	for _, proxyAddr := range cfg.ProxyAddrs {
+		wg.Add(1)
+
 		go openProxyConnection(cfg, proxyAddr, &wg)
 	}
 
