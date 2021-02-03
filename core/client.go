@@ -1,15 +1,14 @@
 package core
 
 import (
-	"context"
 	"github.com/aulang/netbus/config"
-	"github.com/lucas-clemente/quic-go"
 	"log"
+	"net"
 	"sync"
 )
 
 // 发送代理请求
-func sendProxyRequest(session quic.Session, key string, port uint32) bool {
+func sendProxyRequest(conn net.Conn, key string, port uint32) bool {
 	request := Protocol{
 		Result:  protocolResultSuccess,
 		Version: protocolVersion,
@@ -17,15 +16,15 @@ func sendProxyRequest(session quic.Session, key string, port uint32) bool {
 		Key:     key,
 	}
 
-	return sendProtocol(session, request)
+	return sendProtocol(conn, request)
 }
 
 // 打开服务端代理连接
-func openProxyConnection(cfg config.ClientConfig, proxyAddr config.NetAddress, wg *sync.WaitGroup) {
+func buildServerTunnel(cfg config.ClientConfig, proxyAddr config.NetAddress, wg *sync.WaitGroup) {
 	flagChan := make(chan bool)
 
 	// 远程拨号，建立代理会话
-	go openProxySession(cfg, proxyAddr, flagChan, wg)
+	go openProxyConn(cfg, proxyAddr, flagChan, wg)
 
 	// 初始化连接
 	for i := 0; i < cfg.TunnelCount; i++ {
@@ -38,7 +37,7 @@ func openProxyConnection(cfg config.ClientConfig, proxyAddr config.NetAddress, w
 		cfg.TunnelCount)
 }
 
-func openProxySession(cfg config.ClientConfig, proxyAddr config.NetAddress, flagChan chan bool, wg *sync.WaitGroup) {
+func openProxyConn(cfg config.ClientConfig, proxyAddr config.NetAddress, flagChan chan bool, wg *sync.WaitGroup) {
 	key := cfg.Key
 	serverAddr := cfg.ServerAddr
 
@@ -50,37 +49,42 @@ func openProxySession(cfg config.ClientConfig, proxyAddr config.NetAddress, flag
 		}
 
 		go func(serverAddr config.NetAddress, proxyAddr config.NetAddress, key string, flagChan chan bool) {
-			serverSession := dial(serverAddr, 10)
-			if serverSession == nil {
+			serverConn := dial(serverAddr, 10)
+			if serverConn == nil {
 				log.Fatalf("向服务器建立连接失败：[%s]\n", serverAddr.String())
 			}
 
 			// 请求建立连接
-			if !sendProxyRequest(serverSession, key, proxyAddr.ProxyPort) {
+			if !sendProxyRequest(serverConn, key, proxyAddr.ProxyPort) {
 				log.Println("发送协议数据失败！")
+				closeWithoutError(serverConn)
 				// 重新连接
 				flagChan <- true
 				return
 			}
 
 			// 等待服务器端接收数据响应
-			protocol := receiveProtocol(serverSession)
+			protocol := receiveProtocol(serverConn)
 
 			// 处理连接结果
 			switch protocol.Result {
 			case protocolResultSuccess:
 				// 接收到服务器端数据，准备数据传输
-				recvData(proxyAddr, serverSession, flagChan)
+				go receiveData(proxyAddr, serverConn, flagChan)
 			case protocolResultVersionMismatch:
+				closeWithoutError(serverConn)
 				// 版本不匹配，退出客户端
 				log.Fatalln("版本不匹配！")
 			case protocolResultFailToAuth:
+				closeWithoutError(serverConn)
 				// 鉴权失败，退出客户端
 				log.Fatalln("认证失败！")
 			case protocolResultIllegalAccessPort:
+				closeWithoutError(serverConn)
 				// 访问端口不合法，退出客户端
 				log.Fatalln("端口不合法！")
 			default:
+				closeWithoutError(serverConn)
 				// 连接中断，重新连接
 				flagChan <- true
 			}
@@ -89,23 +93,16 @@ func openProxySession(cfg config.ClientConfig, proxyAddr config.NetAddress, flag
 }
 
 // 本地服务连接拨号，并建立双向通道
-func recvData(proxyAddr config.NetAddress, serverSession quic.Session, flagChan chan bool) {
-	// 打开流进行数据传输
-	serverStream, err := serverSession.AcceptStream(context.Background())
-	if err != nil {
-		log.Println("打开服务端流失败！", err)
-		flagChan <- true
-		return
-	}
-
+func receiveData(proxyAddr config.NetAddress, serverConn net.Conn, flagChan chan bool) {
 	// 建立本地连接，进行连接数据传输
-	if localConn := tcpDial(proxyAddr, 5); localConn != nil {
-		forward(serverStream, localConn, flagChan)
+	if localConn := dial(proxyAddr, 5); localConn != nil {
+		flagChan <- true
+		forward(serverConn, localConn)
 	} else {
 		log.Printf("本地端口 [%d] 服务已停止！\n", proxyAddr.Port)
 		// 打开本地连接失败，关闭服务器流
-		closeWithoutError(serverStream)
-		flagChan <- true
+		closeWithoutError(serverConn)
+		flagChan <- false
 	}
 }
 
@@ -119,7 +116,7 @@ func Client(cfg config.ClientConfig) {
 	for _, proxyAddr := range cfg.ProxyAddrs {
 		wg.Add(1)
 
-		go openProxyConnection(cfg, proxyAddr, &wg)
+		go buildServerTunnel(cfg, proxyAddr, &wg)
 	}
 
 	wg.Wait()

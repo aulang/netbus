@@ -2,11 +2,10 @@ package core
 
 import (
 	"bytes"
-	"context"
 	"encoding/binary"
 	"fmt"
-	"github.com/lucas-clemente/quic-go"
 	"log"
+	"net"
 )
 
 const (
@@ -82,17 +81,7 @@ func parseProtocol(body []byte) Protocol {
 // 发送协议
 // 第一个字节为协议长度
 // 协议长度只支持到255
-func sendProtocol(session quic.Session, protocol Protocol) bool {
-	// 此处会阻塞，以等待访问者连接
-	stream, err := session.OpenStreamSync(context.Background())
-	if err != nil {
-		log.Println("打开发送协议流失败！", err)
-		return false
-	}
-
-	// 关闭流
-	defer closeWithoutError(stream)
-
+func sendProtocol(conn net.Conn, protocol Protocol) bool {
 	pbs := protocol.Bytes()
 
 	buffer := bytes.NewBuffer([]byte{})
@@ -101,7 +90,7 @@ func sendProtocol(session quic.Session, protocol Protocol) bool {
 	buffer.Write(pbs)
 
 	// 发送协议数据
-	if _, err := stream.Write(buffer.Bytes()); err != nil {
+	if _, err := conn.Write(buffer.Bytes()); err != nil {
 		log.Println("发送协议数据失败！", err)
 		return false
 	}
@@ -111,25 +100,15 @@ func sendProtocol(session quic.Session, protocol Protocol) bool {
 
 // 接收协议
 // 第一个字节为协议长度
-func receiveProtocol(session quic.Session) Protocol {
-	// 此处会阻塞，以等待访问者连接
-	stream, err := session.AcceptStream(context.Background())
-	if err != nil {
-		log.Println("接受协议数据超时！", err)
-		return Protocol{Result: protocolResultFailToReceive}
-	}
-
-	// 关闭流
-	defer closeWithoutError(stream)
-
+func receiveProtocol(conn net.Conn) Protocol {
 	var length byte
-	if err = binary.Read(stream, binary.BigEndian, &length); err != nil {
+	if err := binary.Read(conn, binary.BigEndian, &length); err != nil {
 		log.Println("接受协议数据失败！", err)
 		return Protocol{Result: protocolResultFailToReceive}
 	}
 	// 读取协议内容
 	body := make([]byte, length)
-	if err = binary.Read(stream, binary.BigEndian, &body); err != nil {
+	if err := binary.Read(conn, binary.BigEndian, &body); err != nil {
 		log.Println("接受协议数据失败！", err)
 		return Protocol{Result: protocolResultFailToReceive}
 	}
